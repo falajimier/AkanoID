@@ -74,6 +74,9 @@ try:
     # Звук отскока от платформы
     paddle_sound = pygame.mixer.Sound(buffer=bytearray([127 + int(127 * np.sin(x * 0.1)) for x in range(4410)]))
     paddle_sound.set_volume(0.3)
+    # Звук отскока от края экрана (выше по тону, чем от платформы, чтобы отличались на слух)
+    wall_sound = pygame.mixer.Sound(buffer=bytearray([127 + int(127 * np.sin(x * 0.17)) for x in range(2756)]))
+    wall_sound.set_volume(0.25)
     # Звук разрушения кирпича
     brick_sound = pygame.mixer.Sound(buffer=bytearray([127 + int(127 * np.sin(x * 0.2)) for x in range(2205)]))
     brick_sound.set_volume(0.4)
@@ -127,6 +130,7 @@ except Exception as e:
         def stop(self): pass
 
     paddle_sound = DummySound()
+    wall_sound = DummySound()
     brick_sound = DummySound()
     special_brick_sound = DummySound()
     expand_sound = DummySound()
@@ -279,27 +283,48 @@ def draw_heart_icon(x, y, size=10, filled=True):
             glVertex2f(px, py)
         glEnd()
 
+_font_cache = {}          # (size) -> pygame.font.Font, so SysFont() is only ever called once per size
+_text_texture_cache = {}  # (text, size, color, mirrored) -> (tex_id, width, height), reused while the string doesn't change
+
+def _get_font(size):
+    font = _font_cache.get(size)
+    if font is None:
+        font = pygame.font.SysFont('Arial', size, bold=True)
+        _font_cache[size] = font
+    return font
+
 def draw_text(text, x, y, color=WHITE, size=24, mirrored=False):
-    font = pygame.font.SysFont('Arial', size, bold=True)
-    text_surface = font.render(text, True, color)
-    if mirrored:
-        text_surface = pygame.transform.flip(text_surface, False, False)
-    text_data = pygame.image.tostring(text_surface, "RGBA", False)
+    cache_key = (text, size, color, mirrored)
+    cached = _text_texture_cache.get(cache_key)
+    if cached is None:
+        font = _get_font(size)
+        text_surface = font.render(text, True, color)
+        if mirrored:
+            text_surface = pygame.transform.flip(text_surface, False, False)
+        text_data = pygame.image.tostring(text_surface, "RGBA", False)
+        tex_id = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, tex_id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, text_surface.get_width(), text_surface.get_height(),
+                     0, GL_RGBA, GL_UNSIGNED_BYTE, text_data)
+        cached = (tex_id, text_surface.get_width(), text_surface.get_height())
+        _text_texture_cache[cache_key] = cached
+        # keep the cache from growing forever if score/timers produce endless unique strings
+        if len(_text_texture_cache) > 300:
+            old_key, (old_tex, _, _) = _text_texture_cache.popitem()
+            glDeleteTextures([old_tex])
+
+    tex_id, w, h = cached
     glEnable(GL_TEXTURE_2D)
-    tex_id = glGenTextures(1)
     glBindTexture(GL_TEXTURE_2D, tex_id)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, text_surface.get_width(), text_surface.get_height(),
-                 0, GL_RGBA, GL_UNSIGNED_BYTE, text_data)
     glColor3f(1.0, 1.0, 1.0)
     glBegin(GL_QUADS)
     glTexCoord2f(0, 0); glVertex2f(x, y)
-    glTexCoord2f(1, 0); glVertex2f(x + text_surface.get_width(), y)
-    glTexCoord2f(1, 1); glVertex2f(x + text_surface.get_width(), y + text_surface.get_height())
-    glTexCoord2f(0, 1); glVertex2f(x, y + text_surface.get_height())
+    glTexCoord2f(1, 0); glVertex2f(x + w, y)
+    glTexCoord2f(1, 1); glVertex2f(x + w, y + h)
+    glTexCoord2f(0, 1); glVertex2f(x, y + h)
     glEnd()
-    glDeleteTextures([tex_id])
     glDisable(GL_TEXTURE_2D)
 
 class Particle:
@@ -327,6 +352,112 @@ class Particle:
         glBegin(GL_POINTS)
         glVertex2f(self.x, self.y)
         glEnd()
+
+class BrickShard:
+    """Один осколок кирпича — прямоугольный фрагмент, разлетающийся с вращением и затуханием."""
+    def __init__(self, x, y, w, h, color):
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+        self.color = color
+        # Разлёт в стороны от центра кирпича + лёгкий подброс вверх
+        self.vx = random.uniform(-3.5, 3.5)
+        self.vy = random.uniform(-4.5, -1.0)
+        self.gravity = 0.28
+        self.rotation = random.uniform(0, 360)
+        self.angular_velocity = random.uniform(-12, 12)
+        self.lifetime = random.randint(28, 42)
+        self.max_lifetime = self.lifetime
+
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.vy += self.gravity
+        self.rotation += self.angular_velocity
+        self.lifetime -= 1
+        return self.lifetime > 0
+
+    def draw(self):
+        alpha = max(0.0, self.lifetime / self.max_lifetime)
+        r, g, b = self.color[0] / 255.0, self.color[1] / 255.0, self.color[2] / 255.0
+        glPushMatrix()
+        glTranslatef(self.x, self.y, 0)
+        glRotatef(self.rotation, 0, 0, 1)
+        glColor4f(r, g, b, alpha)
+        hw, hh = self.w / 2.0, self.h / 2.0
+        glBegin(GL_QUADS)
+        glVertex2f(-hw, -hh)
+        glVertex2f(hw, -hh)
+        glVertex2f(hw, hh)
+        glVertex2f(-hw, hh)
+        glEnd()
+        glPopMatrix()
+
+
+def shatter_brick(brick, shard_list):
+    """Разбивает кирпич на несколько осколков вместо мгновенного исчезновения."""
+    special_colors = {
+        'life': (255, 235, 80),
+        'expand': (210, 210, 235),
+        'ball': (80, 255, 220),
+        'gun': (255, 130, 130),
+    }
+    shard_color = special_colors.get(brick.special_type, brick.color)
+    cols, rows = 3, 2
+    piece_w = brick.width / cols
+    piece_h = brick.height / rows
+    for row in range(rows):
+        for col in range(cols):
+            piece_x = brick.x + col * piece_w + piece_w / 2
+            piece_y = brick.y + row * piece_h + piece_h / 2
+            shard_list.append(BrickShard(piece_x, piece_y, piece_w, piece_h, shard_color))
+
+
+# Очки за разные типы кирпичей (раньше были магическими числами, продублированными в двух местах)
+SCORE_NORMAL_BRICK = 10
+SCORE_LIFE_BRICK = 50
+SCORE_EXPAND_BRICK = 30
+SCORE_BALL_BRICK = 40
+SCORE_GUN_BRICK = 60
+
+
+def resolve_brick_destruction(brick, paddle, balls, score, lives, brick_shards):
+    """
+    Общая логика уничтожения кирпича: анимация осколков, начисление очков,
+    применение эффекта спецкирпича и звук.
+
+    Раньше этот блок был продублирован дословно в двух местах (столкновение с мячом
+    и столкновение с пулей) и мог рассинхронизироваться при правках. Теперь он один.
+
+    Возвращает обновлённые (score, lives), т.к. они простые int в вызывающем коде.
+    """
+    brick.visible = False
+    shatter_brick(brick, brick_shards)
+
+    if brick.special_type == 'life':
+        lives += 1
+        score += SCORE_LIFE_BRICK
+        special_brick_sound.play()
+    elif brick.special_type == 'expand':
+        paddle.expand()
+        score += SCORE_EXPAND_BRICK
+        special_brick_sound.play()
+    elif brick.special_type == 'ball':
+        new_ball = Ball(paddle.x + paddle.width // 2, paddle.y - 20)
+        balls.append(new_ball)
+        score += SCORE_BALL_BRICK
+        extra_ball_sound.play()
+    elif brick.special_type == 'gun':
+        paddle.activate_guns()
+        score += SCORE_GUN_BRICK
+        gun_sound.play()
+    else:
+        score += SCORE_NORMAL_BRICK
+        brick_sound.play()
+
+    return score, lives
+
 
 class Bullet:
     def __init__(self, x, y, speed=10):
@@ -1034,10 +1165,12 @@ class Ball:
             self.dx *= -1
             self.glow_timer = 10
             self.create_impact_particles()
+            wall_sound.play()
         if self.y <= self.radius:
             self.dy *= -1
             self.glow_timer = 10
             self.create_impact_particles()
+            wall_sound.play()
         self.rect.x = self.x - self.radius
         self.rect.y = self.y - self.radius
         if random.random() < 0.6:
@@ -1550,6 +1683,13 @@ def show_menu():
     if music_loaded and music_playing:
         pygame.mixer.music.play(loops=-1)
 
+    # Одна постоянная текстура для видео-фона меню — переиспользуется каждый кадр,
+    # вместо glGenTextures/glDeleteTextures на каждой итерации цикла (это было дорого на Windows)
+    menu_video_texture_id = glGenTextures(1)
+    glBindTexture(GL_TEXTURE_2D, menu_video_texture_id)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+
     menu_running = True
     while menu_running:
         glClearColor(0.0, 0.0, 0.0, 1.0)
@@ -1566,16 +1706,12 @@ def show_menu():
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 # Изменение размера под окно
                 frame = cv2.resize(frame, (WIDTH, HEIGHT))
-                # Преобразование в текстуру OpenGL
+                # Преобразование в текстуру OpenGL (обновляем существующую текстуру, а не создаём новую)
                 texture_data = frame.tobytes()
-                texture_id = glGenTextures(1)
-                glBindTexture(GL_TEXTURE_2D, texture_id)
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+                glBindTexture(GL_TEXTURE_2D, menu_video_texture_id)
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIDTH, HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, texture_data)
 
                 glEnable(GL_TEXTURE_2D)
-                glBindTexture(GL_TEXTURE_2D, texture_id)
                 glColor3f(1.0, 1.0, 1.0)
                 glBegin(GL_QUADS)
                 glTexCoord2f(0.0, 0.0); glVertex2f(0, 0)
@@ -1584,8 +1720,6 @@ def show_menu():
                 glTexCoord2f(0.0, 1.0); glVertex2f(0, HEIGHT)
                 glEnd()
                 glDisable(GL_TEXTURE_2D)
-
-                glDeleteTextures([texture_id])
             else:
                 # Видео закончилось — перезапустить
                 current_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -1883,6 +2017,7 @@ def main():
             current_level = selected_level
             inverted_level = 20 - current_level
             bricks = create_level(inverted_level)
+            brick_shards = []
             boss = None
             boss_active = False
             score = 0
@@ -1902,6 +2037,7 @@ def main():
                             balls = [ball]
                             current_level = selected_level
                             bricks = create_level(current_level)
+                            brick_shards = []
                             boss = None
                             boss_active = False
                             score = 0
@@ -2022,55 +2158,18 @@ def main():
                         for ball in balls[:]:
                             for brick in bricks:
                                 if brick.visible and ball.rect.colliderect(brick.rect):
-                                    brick.visible = False
+                                    score, lives = resolve_brick_destruction(
+                                        brick, paddle, balls, score, lives, brick_shards)
                                     ball.dy *= -1
                                     ball.glow_timer = 8
-                                    if brick.special_type == 'life':
-                                        lives += 1
-                                        score += 50
-                                        special_brick_sound.play()
-                                    elif brick.special_type == 'expand':
-                                        paddle.expand()
-                                        score += 30
-                                        special_brick_sound.play()
-                                    elif brick.special_type == 'ball':
-                                        new_ball = Ball(paddle.x + paddle.width // 2, paddle.y - 20)
-                                        balls.append(new_ball)
-                                        score += 40
-                                        extra_ball_sound.play()
-                                    elif brick.special_type == 'gun':
-                                        paddle.activate_guns()
-                                        score += 60
-                                        gun_sound.play()
-                                    else:
-                                        score += 10
-                                        brick_sound.play()
-                                    
+                                    break
+
                         for bullet in paddle.bullets[:]:
                             for brick in bricks:
                                 if brick.visible and bullet.rect.colliderect(brick.rect):
-                                    brick.visible = False
+                                    score, lives = resolve_brick_destruction(
+                                        brick, paddle, balls, score, lives, brick_shards)
                                     bullet.active = False
-                                    if brick.special_type == 'life':
-                                        lives += 1
-                                        score += 50
-                                        special_brick_sound.play()
-                                    elif brick.special_type == 'expand':
-                                        paddle.expand()
-                                        score += 30
-                                        special_brick_sound.play()
-                                    elif brick.special_type == 'ball':
-                                        new_ball = Ball(paddle.x + paddle.width // 2, paddle.y - 20)
-                                        balls.append(new_ball)
-                                        score += 40
-                                        extra_ball_sound.play()
-                                    elif brick.special_type == 'gun':
-                                        paddle.activate_guns()
-                                        score += 60
-                                        gun_sound.play()
-                                    else:
-                                        score += 10
-                                        brick_sound.play()
                                     break
                                     
                         paddle.bullets = [bullet for bullet in paddle.bullets if bullet.active]
@@ -2080,7 +2179,10 @@ def main():
                             level_complete = True
                             if current_level == max_level:
                                 game_over = True
-                                
+
+                # Обновление осколков разбитых кирпичей (в т.ч. когда игра на паузе/окончена, чтобы анимация доигралась)
+                brick_shards = [s for s in brick_shards if s.update()]
+
                 # Отрисовка
                 draw_background()
                 paddle.draw()
@@ -2093,6 +2195,9 @@ def main():
                     
                 for brick in bricks:
                     brick.draw()
+
+                for shard in brick_shards:
+                    shard.draw()
                     
                 # Відображення життів сердечками
                 max_lives_display = 5
