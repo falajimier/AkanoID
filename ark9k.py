@@ -41,7 +41,7 @@ COLORS = [RED, GREEN, BLUE, YELLOW, ORANGE, PURPLE, CYAN, PINK, BROWN]
 # Создание окна с OpenGL
 pygame.display.gl_set_attribute(GL_ACCELERATED_VISUAL, 1)
 pygame.display.set_mode((WIDTH, HEIGHT), HWSURFACE | DOUBLEBUF | OPENGL)
-pygame.display.set_caption("Arkanoid - my game")
+pygame.display.set_caption("Akanoid - my game")
 info = pygame.display.Info()
 print(info)
 clock = pygame.time.Clock()
