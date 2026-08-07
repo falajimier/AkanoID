@@ -1,63 +1,62 @@
-[README.md](https://github.com/user-attachments/files/30677724/README.md)
-[README.zh.md](https://github.com/user-attachments/files/30677730/README.zh.md)# 打砖块 —— 我的游戏（Arkanoid）
+# Arkanoid – My Game
 
-一款用 Python 编写、基于 **OpenGL**（通过 Pygame 调用）渲染的经典 **打砖块（Arkanoid / Breakout）** 风格游戏。击碎砖块、收集道具，并在 20 个关卡中与боss战斗。
+A classic **Arkanoid / Breakout**–style game written in Python, rendered with **OpenGL** through Pygame. Break bricks, collect power-ups, and fight bosses across 20 levels.
 
-🌍 [English README](README.md)
+🌏 [中文说明 (Chinese README)](README.zh.md)
 
-## 功能特色
+## Features
 
-- 🎮 流畅的 OpenGL 硬件加速 2D 渲染（分辨率 1260×800，60 FPS）
-- 🧱 20 个可玩关卡，砖块布局各不相同
-- 👾 第 5、10、15、20 关设有 Boss 战，每个 Boss 会发射不同类型的弹幕（普通、减速、爆炸）
-- ⭐ 特殊道具砖块：
-  - **金色** —— 获得一条额外生命
-  - **银色** —— 挡板变宽
-  - **青色** —— 增加一个球
-  - **红色** —— 激活挡板炮台
-- 💥 碰撞、爆炸和子弹拖尾的粒子特效
-- ❤️ 以心形图标显示剩余生命
-- 🔊 程序化生成的音效（挡板反弹、砖块破碎、道具获取、Boss 受击等）
-- 🎵 可选背景音乐 —— 只需在脚本同目录下放置一个 MP3 文件（`music.mp3`、`background.mp3`、`game_music.mp3`、`soundtrack.mp3` 或 `arkanoid_music.mp3`）即可
-- ⏸️ 暂停菜单与关卡选择
+- 🎮 Smooth OpenGL-accelerated 2D rendering (1260×800, 60 FPS)
+- 🧱 20 playable levels with a variety of brick layouts
+- 👾 Boss fights on levels 5, 10, 15, and 20, each boss firing different projectile types (normal, slowing, explosive)
+- ⭐ Special power-up bricks:
+  - **Gold** – grants an extra life
+  - **Silver** – expands the paddle
+  - **Cyan** – spawns an extra ball
+  - **Red** – activates paddle-mounted guns
+- 💥 Particle effects for collisions, explosions, and bullet trails
+- ❤️ Heart-based lives display
+- 🔊 Procedurally generated sound effects (paddle bounce, brick break, power-ups, boss hits, etc.)
+- 🎵 Optional background music — just drop an MP3 file (`music.mp3`, `background.mp3`, `game_music.mp3`, `soundtrack.mp3`, or `arkanoid_music.mp3`) next to the script
+- ⏸️ Pause menu and level-select
 
-## 环境要求
+## Requirements
 
-- Python 3.8 及以上
+- Python 3.8+
 - [Pygame](https://www.pygame.org/)
 - [PyOpenGL](http://pyopengl.sourceforge.net/)
 - [NumPy](https://numpy.org/)
 - [OpenCV (opencv-python)](https://pypi.org/project/opencv-python/)
 
-安装依赖：
+Install the dependencies:
 
 ```bash
 pip install pygame PyOpenGL PyOpenGL_accelerate numpy opencv-python
 ```
 
-## 运行游戏
+## Running the Game
 
 ```bash
 python ark9k.py
 ```
 
-## 操作说明
+## Controls
 
-| 按键 | 功能 |
-|------|------|
-| ← / → | 游戏中移动挡板 / 菜单中导航 |
-| ↑ / ↓ | 菜单导航 |
-| Enter | 确认菜单选项 |
-| Esc | 暂停 / 打开菜单 |
-| M | 开启或关闭背景音乐 |
-| R | 游戏结束或通关后重新开始 |
-| N | 通关当前关卡后进入下一关 |
+| Key | Action |
+|-----|--------|
+| ← / → | Move paddle (in-game) / navigate menu |
+| ↑ / ↓ | Navigate menu |
+| Enter | Confirm menu selection |
+| Esc | Pause / open menu |
+| M | Toggle background music |
+| R | Restart after game over or victory |
+| N | Advance to the next level after clearing one |
 
-挡板炮台一旦被红色砖块激活，会自动开火。
+Paddle guns (once activated by a red brick) fire automatically.
 
-## 添加背景音乐
+## Adding Background Music
 
-游戏会在运行目录中查找以下任意一个文件，若找到则循环播放：
+The game looks for one of the following files in the working directory and plays it on loop if found:
 
 ```
 music.mp3
@@ -67,14 +66,14 @@ soundtrack.mp3
 arkanoid_music.mp3
 ```
 
-如果没有找到这些文件，游戏将没有背景音乐（音效仍会正常播放，因为音效是程序实时生成的）。
+If none are present, the game runs silently for music (sound effects still play, as they are generated procedurally).
 
-## 项目结构
+## Project Structure
 
 ```
-ark9k.py    # 单文件游戏：引擎、实体、关卡、Boss 逻辑、UI 与主循环
+ark9k.py    # Single-file game: engine, entities, levels, boss logic, UI, main loop
 ```
 
-## 许可证
+## License
 
-目前尚未指定许可证 —— 如果计划分享代码或接受他人贡献，建议添加一个（例如 MIT 许可证）。
+No license specified yet — add one (e.g., MIT) if you plan to share or accept contributions.
